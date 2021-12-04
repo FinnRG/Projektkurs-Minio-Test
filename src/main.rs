@@ -1,10 +1,12 @@
 #[macro_use]
 extern crate rocket;
 
+use rocket::data::ToByteUnit;
 use rocket::futures::stream::{repeat, StreamExt};
 use rocket::http::Method;
 use rocket::response::stream::ByteStream;
-use rocket::{get, routes};
+use rocket::response::Debug;
+use rocket::{get, routes, Data};
 use rocket_cors::{AllowedHeaders, AllowedOrigins};
 use s3::{creds::Credentials, Bucket, Region};
 use std::error::Error;
@@ -76,22 +78,34 @@ async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
     }
 }
 
-#[get("/upload")]
-async fn upload() -> String {
-    let bucket = get_bucket();
-    /*
-    let output = Command::new("/usr/bin/ffmpeg")
+#[post("/upload/<name>", data = "<paste>")]
+async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::Error>> {
+    let filename = format!("media/{name}", name = name);
+    paste.open(1u32.gibibytes()).into_file(filename).await?;
+
+    println!("{}", format!("./media/{}", name));
+
+    // Transform the given file into HLS streamable files
+    let _output = Command::new("/usr/bin/ffmpeg")
         .args(&[
             "-i",
-            "./media/Deco.mkv",
+            &format!("./media/{}", name),
+            "-codec:",
+            "copy",
+            "-start_number",
+            "0",
+            "-hls_time",
+            "10",
+            "-hls_list_size",
+            "0",
             "-f",
             "hls",
-            "./media/output/Deco.m3u8",
+            &format!("./media/output/{}.m3u8", name),
         ])
         .output()
-        .expect("Failed to execute command");*/
+        .expect("Failed to execute command");
 
-    let mut paths = fs::read_dir("media/output").unwrap();
+    let paths = fs::read_dir("media/output").unwrap();
     let bucket = get_bucket();
 
     for path in paths {
@@ -104,12 +118,12 @@ async fn upload() -> String {
     }
 
     //String::from_utf8_lossy(&output.stdout).to_string()
-    String::from("Test")
+    Ok(String::from("Test"))
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let allowed_origins = AllowedOrigins::some_exact(&["*"]);
+    let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
 
     // You can also deserialize this
     let cors = rocket_cors::CorsOptions {
