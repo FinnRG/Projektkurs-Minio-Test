@@ -2,7 +2,6 @@
 extern crate rocket;
 
 use rocket::data::ToByteUnit;
-use rocket::futures::stream::{repeat, StreamExt};
 use rocket::http::Method;
 use rocket::response::stream::ByteStream;
 use rocket::response::Debug;
@@ -17,18 +16,13 @@ use std::process::Command;
 extern crate s3;
 
 struct Storage {
-    name: String,
     region: Region,
     credentials: Credentials,
     bucket: String,
-    location_supported: bool,
 }
-
-const MESSAGE: &str = "Hello, World!";
 
 fn get_minio() -> Storage {
     Storage {
-        name: "minio".into(),
         region: Region::Custom {
             region: "minio".into(),
             endpoint: "http://localhost:9000".into(),
@@ -40,22 +34,12 @@ fn get_minio() -> Storage {
             session_token: None,
         },
         bucket: "rusty-s3".to_string(),
-        location_supported: false,
     }
 }
 
 fn get_bucket() -> Bucket {
     let minio = get_minio();
     Bucket::new_with_path_style(&minio.bucket, minio.region, minio.credentials).unwrap()
-}
-
-async fn put_file(name: &str) -> () {
-    let bucket = get_bucket();
-
-    let (_, code) = bucket
-        .put_object("hello_worldd.txt", MESSAGE.as_bytes())
-        .await
-        .unwrap();
 }
 
 #[get("/get/<name..>")]
@@ -80,16 +64,16 @@ async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
 
 #[post("/upload/<name>", data = "<paste>")]
 async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::Error>> {
-    let filename = format!("media/{name}", name = name);
-    paste.open(1u32.gibibytes()).into_file(filename).await?;
+    let filename = format!("media/{name}/{name}", name = name);
+    tokio::fs::create_dir_all(format!("media/{}/output", name)).await?;
+    paste.open(1u32.gibibytes()).into_file(&filename).await?;
 
-    println!("{}", format!("./media/{}", name));
-
+    println!("{}", &filename);
     // Transform the given file into HLS streamable files
     let _output = Command::new("/usr/bin/ffmpeg")
         .args(&[
             "-i",
-            &format!("./media/{}", name),
+            &filename,
             "-codec:",
             "copy",
             "-start_number",
@@ -100,25 +84,25 @@ async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::
             "0",
             "-f",
             "hls",
-            &format!("./media/output/{}.m3u8", name),
+            &format!("./media/{name}/output/{name}.m3u8", name = name),
         ])
         .output()
         .expect("Failed to execute command");
 
-    let paths = fs::read_dir("media/output").unwrap();
     let bucket = get_bucket();
+    let paths = fs::read_dir(format!("media/{name}/output/", name = name)).unwrap();
 
     for path in paths {
         let path_ex = path.unwrap().path();
         let temp_path = path_ex.to_str().unwrap();
-        let (_, code) = bucket
+        bucket
             .put_object(temp_path, &fs::read(temp_path).unwrap())
             .await
             .unwrap();
     }
 
     //String::from_utf8_lossy(&output.stdout).to_string()
-    Ok(String::from("Test"))
+    Ok(String::from("Successfull"))
 }
 
 #[tokio::main]
