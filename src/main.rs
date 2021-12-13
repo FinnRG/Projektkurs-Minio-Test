@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate rocket;
 
+use regex::Regex;
 use rocket::data::ToByteUnit;
 use rocket::http::Method;
 use rocket::response::stream::ByteStream;
@@ -44,10 +45,17 @@ fn get_bucket() -> Bucket {
 
 #[get("/get/<name..>")]
 async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
-    let _minio = get_minio();
     let bucket = get_bucket();
+    let mut name_str = name.into_os_string().into_string().unwrap();
+    let re = Regex::new(r"\d*\.(ts|m3u8)$").unwrap();
+    let name_stripped = re.replace(&name_str, "").into_owned();
 
-    let path_str = name.into_os_string().into_string().unwrap();
+    // Reroutes the /get/name to /get/name.m3u8 request
+    if !(name_str.ends_with(".ts") || name_str.ends_with(".m3u8")) {
+        name_str = name_str + ".m3u8";
+    }
+
+    let path_str = format!("media/{}/output/{}", name_stripped, name_str);
 
     ByteStream! {
         let mut i = 0;
@@ -63,9 +71,11 @@ async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
 }
 
 #[post("/upload/<name>", data = "<paste>")]
-async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::Error>> {
-    let filename = format!("media/{name}/{name}", name = name);
+async fn upload(mut name: String, paste: Data<'_>) -> Result<String, Debug<std::io::Error>> {
+    let re = Regex::new(r"\.\w*$").unwrap();
+    name = re.replace(&name, "").into_owned();
     tokio::fs::create_dir_all(format!("media/{}/output", name)).await?;
+    let filename = format!("media/{name}/{name}", name = name);
     paste.open(1u32.gibibytes()).into_file(&filename).await?;
 
     println!("{}", &filename);
@@ -101,6 +111,8 @@ async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::
             .unwrap();
     }
 
+    tokio::fs::remove_dir_all(format!("media/{name}", name = name)).await?;
+
     //String::from_utf8_lossy(&output.stdout).to_string()
     Ok(String::from("Successfull"))
 }
@@ -109,11 +121,13 @@ async fn upload(name: String, paste: Data<'_>) -> Result<String, Debug<std::io::
 async fn main() -> Result<(), Box<dyn Error>> {
     let allowed_origins = AllowedOrigins::some_exact(&["http://localhost:3000"]);
 
-    // You can also deserialize this
     let cors = rocket_cors::CorsOptions {
         allowed_origins,
-        allowed_methods: vec![Method::Get].into_iter().map(From::from).collect(),
-        allowed_headers: AllowedHeaders::some(&["Authorization", "Accept"]),
+        allowed_methods: vec![Method::Get, Method::Post]
+            .into_iter()
+            .map(From::from)
+            .collect(),
+        allowed_headers: AllowedHeaders::all(),
         allow_credentials: true,
         ..Default::default()
     }

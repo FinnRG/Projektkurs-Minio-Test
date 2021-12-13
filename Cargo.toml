@@ -10,3 +10,4 @@ rust-s3 = "0.28.0"
 rocket = "0.5.0-rc.1"
 tokio = "1.14.0"
 rocket_cors = { git = "https://github.com/lawliet89/rocket_cors", branch = "master" }
+regex = "1.5.4"

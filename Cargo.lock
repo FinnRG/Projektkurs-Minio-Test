@@ -809,6 +809,7 @@ dependencies = [
 name = "minio-test"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "rocket",
  "rocket_cors",
  "rust-s3",
