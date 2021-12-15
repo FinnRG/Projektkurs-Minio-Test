@@ -11,3 +11,4 @@ rocket = "0.5.0-rc.1"
 tokio = "1.14.0"
 rocket_cors = { git = "https://github.com/lawliet89/rocket_cors", branch = "master" }
 regex = "1.5.4"
+uuid = { version = "1.0.0-alpha.1", features = ["v4", "fast-rng", "macro-diagnostics"] }

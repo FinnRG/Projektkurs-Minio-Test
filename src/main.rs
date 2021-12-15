@@ -13,6 +13,7 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use uuid::Uuid;
 
 extern crate s3;
 
@@ -43,10 +44,11 @@ fn get_bucket() -> Bucket {
     Bucket::new_with_path_style(&minio.bucket, minio.region, minio.credentials).unwrap()
 }
 
-#[get("/get/<name..>")]
-async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
+#[get("/get/<name>")]
+async fn get_file(name: String) -> ByteStream![Vec<u8>] {
+    println!("{}", name);
     let bucket = get_bucket();
-    let mut name_str = name.into_os_string().into_string().unwrap();
+    let mut name_str = name;
     let re = Regex::new(r"\d*\.(ts|m3u8)$").unwrap();
     let name_stripped = re.replace(&name_str, "").into_owned();
 
@@ -72,18 +74,21 @@ async fn get_file(name: PathBuf) -> ByteStream![Vec<u8>] {
 
 #[post("/upload/<name>", data = "<paste>")]
 async fn upload(mut name: String, paste: Data<'_>) -> Result<String, Debug<std::io::Error>> {
-    let re = Regex::new(r"\.\w*$").unwrap();
-    name = re.replace(&name, "").into_owned();
+    // let re = Regex::new(r"\.\w*$").unwrap();
+    // name = re.replace(&name, "").into_owned();
+    // Ensures, that the id ends with a letter so it doesn't break the regex in /get
+    name = Uuid::new_v4().to_string() + "a";
     tokio::fs::create_dir_all(format!("media/{}/output", name)).await?;
-    let filename = format!("media/{name}/{name}", name = name);
-    paste.open(1u32.gibibytes()).into_file(&filename).await?;
+    let filepath = format!("media/{name}/{name}", name = name);
 
-    println!("{}", &filename);
+    paste.open(1u32.gibibytes()).into_file(&filepath).await?;
+
+    println!("{}", &filepath);
     // Transform the given file into HLS streamable files
-    let _output = Command::new("/usr/bin/ffmpeg")
+    let _output = Command::new("./ffmpeg")
         .args(&[
             "-i",
-            &filename,
+            &filepath,
             "-codec:",
             "copy",
             "-start_number",
